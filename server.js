@@ -25,7 +25,11 @@ function setResponse(query, results) {
   return `<h1>Query: ${query}</h1><h2>JSON fetched from Cache</h2> <code>${results}</code> `;
 }
 
-// Make request to api for data
+function setClearResponse(query, keys) {
+  return `<h1>Key ${query} is cleared.</h1> <br/> <h2>Keys remaining: ${keys}</h2>`;
+}
+
+// Make request to api for data and Set key with its value
 async function getResults(req, res, next) {
   try {
     console.log("Fetching Data...");
@@ -42,13 +46,25 @@ async function getResults(req, res, next) {
     res.send(setResponse(query, results));
 
     const keys = await client.keys("*");
-    const getValue = await client.get(query)
+
     console.log("keys:", keys);
-    console.log("values:", getValue);
-    
+
   } catch (err) {
     console.error(err);
     res.status(500);
+  }
+}
+
+// Clear key by query
+async function clearCache(req, res, next) {
+  try {
+    const { query } = req.params;
+    client.del(query);
+    const keys = await client.keys("*");
+    res.send(setClearResponse(query, keys));
+  } catch (err) {
+    console.log(err);
+    res.status(400);
   }
 }
 
@@ -67,7 +83,7 @@ function cache(req, res, next) {
 
 app.use(morgan("dev"));
 app.get("/results/:query", cache, getResults);
-
+app.get("/results/clear-cache/:query", clearCache);
 
 app.listen(5000, () => {
   console.log(`App listening on port ${PORT}`);
