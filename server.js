@@ -1,6 +1,7 @@
-import express from 'express';
-import axios from 'axios';
-import ioredis from 'ioredis';
+import express from "express";
+import axios from "axios";
+import ioredis from "ioredis";
+import morgan from "morgan";
 
 const { createClient } = ioredis;
 
@@ -9,59 +10,65 @@ const REDIS_PORT = process.env.PORT || 6379;
 
 const client = createClient(REDIS_PORT);
 
+client.on("connect", () => {
+  console.log("Redis connected");
+});
 
-client.on('connect', () => {
-    console.log('redis connected');
+client.on("error", (err) => {
+  console.log("Error " + err);
 });
 
 const app = express();
 
 // Set response
-function setResponse(username, repos) {
-    return `<h2>${username} JSON fetched from cache</h2> <p>${repos}</p> `;
+function setResponse(query, results) {
+  return `<h1>Query: ${query}</h1><h2>JSON fetched from Cache</h2> <code>${results}</code> `;
 }
 
 // Make request to api for data
-async function getRepos(req, res, next) {
-    try {
-        console.log('Fetching Data...');
+async function getResults(req, res, next) {
+  try {
+    console.log("Fetching Data...");
 
-        const { username } = req.params;
-        // https://dummyjson.com/posts/search?q=in
-        const response = await axios.get(`https://dummyjson.com/posts/search?q=${username}`);
-        const data = await response.data;
+    const { query } = req.params;
+    const response = await axios.get(
+      `https://dummyjson.com/posts/search?q=${query}`
+    );
+    const data = await response.data;
+    const results = JSON.stringify(data);
 
-        const repos = JSON.stringify(data);
-        console.log(repos);
+    // Set data to Redis
+    client.setex(query, 3600, results);
+    res.send(setResponse(query, results));
 
-        
-        // Set data to Redis
-        client.setex(username, 3600, repos);
-
-        res.send(setResponse(username, repos));
-    } catch (err) {
-        console.error(err);
-        res.status(500);
-    }
+    const keys = await client.keys("*");
+    const getValue = await client.get(query)
+    console.log("keys:", keys);
+    console.log("values:", getValue);
+    
+  } catch (err) {
+    console.error(err);
+    res.status(500);
+  }
 }
 
 // Cache middleware
 function cache(req, res, next) {
-    const { username } = req.params;
-
-    client.get(username, (err, data) => {
-        if (err) throw err;
-
-        if (data !== null) {
-            res.send(setResponse(username, data));
-        } else {
-            next();
-        }
-    });
+  const { query } = req.params;
+  client.get(query, (err, data) => {
+    if (err) throw err;
+    if (data !== null) {
+      res.send(setResponse(query, data));
+    } else {
+      next();
+    }
+  });
 }
 
-app.get('/repos/:username', cache, getRepos);
+app.use(morgan("dev"));
+app.get("/results/:query", cache, getResults);
+
 
 app.listen(5000, () => {
-    console.log(`App listening on port ${PORT}`);
+  console.log(`App listening on port ${PORT}`);
 });
